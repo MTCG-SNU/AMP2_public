@@ -1,0 +1,14 @@
+Last modified date: 2016-08-30
+
+
+[Spin-polarized calculations]
+Spin-polarized calculation is automatically applied for convergence test, structural relaxation in below condition.
+
+1) Total number of electrons is odd.
+2) Ionized transition metal cation still has d-electrons. That is,
+   0 < (# of valance electrons) - (oxidation number) < 10
+   Oxidation number is determined from the ICSD information.
+   
+   
+[Smearing]
+For structural relaxation, AMP^2 use Gaussian smearing with ¥ò05 eV to obtain reasonable results for all kinds of systems. (insulators, Semiconductors, and metallic systems)

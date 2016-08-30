@@ -1,0 +1,30 @@
+set term pngcairo size 720,720 font 'Arial, 20'
+set output 'energy.png'
+#set xr[0:]
+set tics nomirror out
+set xlabel '(# of k-points)^{1/3}'
+set ylabel 'E/atom (eV)'
+#set ytics 0.01
+set border 3 back
+set xtics 50 nomirror
+p 'plot.dat' u 2:3 w linespoints pt 5 ps 2.5 lc rgb '#00CC00' title 'E/atom'
+
+set output 'pressure.png'
+#set xr[0:]
+set tics nomirror out
+set xlabel '(# of k-points)^{1/3}'
+set ylabel 'Pressure (kB)'
+#set ytics 10
+set border 3 back
+set xtics 50 nomirror
+p 'plot.dat' u 2:4 w linespoints pt 7 ps 2.5 lc rgb 'red' title 'Pressure'
+
+set output 'force.png'
+#set xr[0:]
+set tics nomirror out
+set border 3 back
+set xtics 50 nomirror
+set xlabel '(# of k-points)^{1/3}'
+set ylabel 'E/atom (eV)'
+#set ytics 0.02
+p 'plot.dat' u 2:5 w linespoints pt 9 ps 2.5 lc rgb 'blue' title 'Force'

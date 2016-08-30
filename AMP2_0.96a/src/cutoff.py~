@@ -1,0 +1,120 @@
+#################################
+# Author : feihoon@snu.ac.kr	#
+#################################
+import shutil, os, sys, subprocess
+
+nproc = sys.argv[1]
+vasprun = sys.argv[2]
+npar = sys.argv[3]
+kpar = sys.argv[4]
+dir = sys.argv[5]
+
+# Check existing data
+if os.path.isdir(dir+'/cutoff') and os.path.isfile(dir+'/cutoff/cutoff.log') :
+	if len(os.popen('grep Converged '+dir+'/cutoff/cutoff.log').readlines()) > 0 :
+		print('Success!')
+		sys.exit(-1)
+else : 
+	os.popen('rm -r '+dir+'/cutoff')
+
+### cutoff energy test setting ###
+ENPOT = os.popen('grep ENMIN '+dir+'/INPUT0/POTCAR_GGA').readlines()
+ENSTART = 200	# starting cutoff energy
+for i in range(len(ENPOT)) :
+	if float(ENPOT[i].split()[5]) > ENSTART :
+		ENSTART = int(float(ENPOT[i].split()[5])/50)*50
+ENSTEP = 50		# energy step
+ENCONV = 1*10**(-2)	# convergence criterion (E/atom)
+PRCONV = 10		# presuure criterion (kB) - set -1 to turn off
+FOCONV = 0.02		# force criterion (atom) - set -1 to turn off
+
+os.mkdir(dir+'/cutoff', 0755)
+os.chdir(dir+'/cutoff')
+result = open('cutoff.log', 'w')
+
+check_en = 0
+check_pr = 0
+check_fo = 0
+free = []
+pres = []
+forc = []
+
+ENCUT = ENSTART
+while check_en*check_pr*check_fo == 0 :
+	if ENCUT > 1000 :
+		print ("Too high cut-off energy required!")
+		sys.exit()
+	os.mkdir('EN'+str(ENCUT), 0755)
+	os.system("cp ../INPUT0/{INCAR,POSCAR,KPOINTS} ./EN"+str(ENCUT))
+	os.system("cp ../INPUT0/POTCAR_GGA ./EN"+str(ENCUT)+"/POTCAR")
+	os.chdir("./EN"+str(ENCUT))
+	# Fix INCAR setting
+	incar = open('INCAR','r')
+	line = incar.readlines()
+	incar.close()
+	incar2 = open('INCAR', 'w')
+	for i in range(len(line)) :
+		if 'ENCUT' in line[i] or 'NSW' in line[i] or 'LWAVE' in line[i] or 'LCHARG' in line[i] :
+			continue
+		else :
+			incar2.write(line[i])
+	incar2.write("\n   NSW = 0\n   LWAVE = .F.\n   LCHARG = .F.\n   ENCUT = "+str(ENCUT)+'\n')
+        incar2.write("\n Parallelization Option:\n")
+	KP = os.popen('cat KPOINTS').readlines()[3].split()
+	if int(KP[0])*int(KP[1])*int(KP[2]) == 1:
+	        incar2.write("   NPAR = "+str(int(npar)*int(kpar)))
+	else :
+		incar2.write("   NPAR = "+str(npar)+"\n   KPAR ="+str(kpar))
+	incar2.close()
+	if subprocess.call(['mpirun -np '+nproc+' '+vasprun+' >& stdout.x'], stdout=subprocess.PIPE, shell=True) != 0 :
+		print('Error occurs in cutoff energy test. (EN'+str(ENCUT)+')')
+		sys.exit()
+	# Convergence check for energy/atom
+	free[len(free):] = [float(os.popen("grep 'free  ' OUTCAR").readlines()[-1].split()[4])]
+	nion = int(os.popen("grep NION OUTCAR").readlines()[-1].split()[11])
+	result.write(str(ENCUT)+": "+str(free[-1])+" eV")
+	if len(free)>2 and (free[-1]-free[-2])/nion<ENCONV and (free[-1]-free[-3])/nion<ENCONV :
+		check_en = 1
+	# Convergence check for pressure
+	if PRCONV > 0 :
+		pres[len(pres):] = [[float(x) for x in os.popen("grep 'in kB' OUTCAR").readline().split()[2:]]]
+		result.write("\t/ "+' '.join([str(x) for x in pres[-1][0:3]])+" kB")
+		if len(pres)>2 :
+			check_pr = 1
+			for i in range(6) :
+				if abs(pres[-1][i]-pres[-2][i])>PRCONV and abs(pres[-1][i]-pres[-3][i])>PRCONV :
+					check_pr = 0
+	else : check_pr = 1
+	# Convergence check for force
+	if FOCONV > 0 :
+		forc[len(forc):] = [os.popen("grep TOTAL-F OUTCAR -A "+str(nion+1)).readlines()[2:nion+2]]
+		check_fo = 1
+		for j in range(len(forc[-1])) :
+			if len(forc)>2 and abs((float(forc[-1][j].split()[3])-float(forc[-2][j].split()[3]))**2.+(float(forc[-1][j].split()[4])-float(forc[-2][j].split()[4]))**2.+(float(forc[-1][j].split()[5])-float(forc[-2][j].split()[5]))**2.)>FOCONV**2 :
+				check_fo = 0
+			if len(forc)>2 and abs((float(forc[-1][j].split()[3])-float(forc[-3][j].split()[3]))**2.+(float(forc[-1][j].split()[4])-float(forc[-3][j].split()[4]))**2.+(float(forc[-1][j].split()[5])-float(forc[-3][j].split()[5]))**2.)>FOCONV**2 :
+				check_fo = 0
+	else : check_fo = 1
+	result.write('\n')
+	ENCUT = ENCUT + ENSTEP
+	os.chdir("../")
+
+result.write("\nConvergence cirterion: E/atom < "+str(ENCONV)+" eV\n")
+if PRCONV > 0 :
+	result.write("                       Pressure < "+str(PRCONV)+" kB\n")
+if FOCONV > 0 :
+	result.write("                       Force < "+str(FOCONV)+" eV/Angst\n")
+result.write("Converged ENCUT: "+str(ENCUT-ENSTEP*3)+' eV\n')
+result.close()
+incar = open('../INPUT0/INCAR','r')	### Write converged ENCUT in INPUT0/INCAR
+line = incar.readlines()
+incar.close()
+incar2 = open('../INPUT0/INCAR', 'w')
+for i in range(len(line)) :
+	if 'ENCUT' in line[i] :
+		incar2.write('   ENCUT = '+str(ENCUT-ENSTEP*3)+'\n')
+	else :
+		incar2.write(line[i])
+incar2.close()
+os.system("rm EN*/vasprun.xml")
+print('Success!')
